@@ -20,7 +20,7 @@ PINECONE_INDEX = os.getenv("PINECONE_INDEX_NAME")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 app = FastAPI()
-PORT=8000
+PORT = int(os.environ.get("PORT", 8000))
 
 origins = [
     "http://localhost:5173", 
@@ -29,26 +29,28 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,           
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],              
-    allow_headers=["*"],              
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
 
 @app.get("/favicon.ico")
 async def favicon():
     return Response(status_code=204)
+
 @app.get("/")
 def home():
     return {"message": "Hello from FastAPI!"}
 
+# Initialize Pinecone, embedding model, LLM
 pc = Pinecone(api_key=PINECONE_API_KEY)
 index = pc.Index(PINECONE_INDEX)
 embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 llm = ChatGroq(groq_api_key=GROQ_API_KEY, model_name="llama-3.1-8b-instant")
 rag_chain = None
 
+# Input model
 class SourceItem(BaseModel):
     type: str
     path: str
@@ -122,5 +124,6 @@ async def reset_index():
     except Exception as e:
         return {"error": f"❌ Error resetting index: {str(e)}"}
 
-
-
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=PORT)
