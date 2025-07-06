@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, UploadFile, File, Request
+from fastapi import FastAPI, UploadFile, File, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -33,6 +33,11 @@ app.add_middleware(
     allow_methods=["*"],              
     allow_headers=["*"],              
 )
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    return Response(status_code=204)
 @app.get("/")
 def home():
     return {"message": "Hello from FastAPI!"}
@@ -115,3 +120,10 @@ async def reset_index():
             return {"message": "⚠️ No vectors found in 'default' namespace."}
     except Exception as e:
         return {"error": f"❌ Error resetting index: {str(e)}"}
+
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.environ.get("PORT", 8000))  
+    uvicorn.run("aiBot:app", host="0.0.0.0", port=port, reload=False)
+
