@@ -33,6 +33,9 @@ app.add_middleware(
     allow_methods=["*"],              
     allow_headers=["*"],              
 )
+@app.get("/")
+def home():
+    return {"message": "Hello from FastAPI!"}
 
 pc = Pinecone(api_key=PINECONE_API_KEY)
 index = pc.Index(PINECONE_INDEX)
