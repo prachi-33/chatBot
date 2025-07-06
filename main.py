@@ -20,6 +20,7 @@ PINECONE_INDEX = os.getenv("PINECONE_INDEX_NAME")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 app = FastAPI()
+PORT=8000
 
 origins = [
     "http://localhost:5173", 
