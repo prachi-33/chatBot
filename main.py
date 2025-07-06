@@ -122,9 +122,5 @@ async def reset_index():
     except Exception as e:
         return {"error": f"❌ Error resetting index: {str(e)}"}
 
-if __name__ == "__main__":
-    import uvicorn
 
-    port = int(os.environ.get("PORT", 8000))  
-    uvicorn.run("main:app", host="127.0.0.1", port=port, reload=False)
 
