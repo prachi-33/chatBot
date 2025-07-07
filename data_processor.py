@@ -10,21 +10,22 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 import shutil
+from fastapi.responses import StreamingResponse
 
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+pytesseract.pytesseract.tesseract_cmd = r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 downloaded = set()
 
 def process_image(path):
-    print(f"[INFO] Processing image: {path}")
+    yield f"[INFO] Processing image: {path}"
     img = Image.open(path)
     result = pytesseract.image_to_string(img)
-    return result
+    yield result
 
 def ocr_pdf_image_based(pdf_path):
-    print(f"[INFO] Performing OCR on PDF: {pdf_path}")
+    yield f"[INFO] Performing OCR on PDF: {pdf_path}"
     try:
         doc = fitz.open(pdf_path)
         full_text = ""
@@ -39,20 +40,18 @@ def ocr_pdf_image_based(pdf_path):
             full_text += f"--- Page {page_num + 1} ---\n{text.strip()}\n\n"
             os.remove(img_path)
 
-        return full_text.strip()
+        yield full_text.strip()
     except Exception as e:
-        return f"Error during OCR PDF processing: {e}"
+        yield f"Error during OCR PDF processing: {e}"
 
 def process_pdf(file_path):
-    print(f"[INFO] Processing PDF file: {file_path}")
+    yield f"[INFO] Processing PDF file: {file_path}"
     try:
-        text = ocr_pdf_image_based(file_path)
-        return text
+        yield from ocr_pdf_image_based(file_path)
     except Exception as e:
-        return f"Error processing PDF: {e}"
+        yield f"Error processing PDF: {e}"
 
 def extract_pdf_image_links(soup, base_url):
-    print("[INFO] Extracting PDF and image links from website")
     pdf_links = []
     image_links = []
 
@@ -70,9 +69,9 @@ def extract_pdf_image_links(soup, base_url):
 
 def download_file(url, folder="temp"):
     if url in downloaded:
-        print(f"[INFO] Skipping already downloaded file: {url}")
+        yield f"[INFO] Skipping already downloaded file: {url}"
         return None
-    print(f"[INFO] Downloading file from: {url}")
+    yield f"[INFO] Downloading file from: {url}"
     downloaded.add(url)
 
     os.makedirs(folder, exist_ok=True)
@@ -85,7 +84,6 @@ def download_file(url, folder="temp"):
     return local_filename
 
 def extract_structured_sections(soup):
-    print("[INFO] Extracting structured sections")
     sections = []
     current_heading = None
     content_lines = []
@@ -112,7 +110,6 @@ def extract_structured_sections(soup):
     return "\n\n".join(sections)
 
 def extract_faq(soup):
-    print("[INFO] Extracting FAQ content")
     faqs = []
     faq_sections = soup.find_all(["h2", "h3", "strong", "b"])
     for tag in faq_sections:
@@ -126,10 +123,10 @@ def process_website(url, dynamic=False, visited=None, depth=1):
     if visited is None:
         visited = set()
     if url in visited or depth <= 0:
-        return ""
-    
+        return
+
     visited.add(url)
-    print(f"[INFO] Processing website: {url} | Dynamic: {dynamic} | Depth: {depth}")
+    yield f"[INFO] Processing website: {url} | Dynamic: {dynamic} | Depth: {depth}"
 
     try:
         if dynamic:
@@ -149,10 +146,9 @@ def process_website(url, dynamic=False, visited=None, depth=1):
         for tag in soup(["script", "style", "noscript", "meta", "link"]):
             tag.decompose()
 
-        texts = [extract_structured_sections(soup)]
+        yield extract_structured_sections(soup)
 
-        # Extract internal links
-        base_url = "/".join(url.split("/")[:3])  # https://example.com
+        base_url = "/".join(url.split("/")[:3])
         internal_links = set()
         for link_tag in soup.find_all("a", href=True):
             href = link_tag['href']
@@ -162,70 +158,51 @@ def process_website(url, dynamic=False, visited=None, depth=1):
             elif href.startswith(base_url):
                 internal_links.add(href)
 
-        # Process sub-links recursively (limit depth)
-        for link in list(internal_links)[:5]:  # limit to first 5 links
+        for link in list(internal_links)[:5]:
             try:
-                sub_text = process_website(link, dynamic=False, visited=visited, depth=depth - 1)
-                texts.append(sub_text)
+                yield from process_website(link, dynamic=False, visited=visited, depth=depth - 1)
             except Exception as e:
-                print(f"[WARN] Failed to process internal link {link}: {e}")
+                yield f"[WARN] Failed to process internal link {link}: {e}"
 
-        # Existing PDF/image/FAQ logic
         pdf_links, image_links = extract_pdf_image_links(soup, url)
         for pdf_url in pdf_links:
             try:
-                local_pdf = download_file(pdf_url)
+                local_pdf = yield from download_file(pdf_url)
                 if local_pdf:
-                    texts.append(process_pdf(local_pdf))
+                    yield from process_pdf(local_pdf)
             except Exception as e:
-                print(f"[ERROR] Failed to process PDF: {e}")
-                continue
+                yield f"[ERROR] Failed to process PDF: {e}"
 
         for img_url in image_links:
             try:
-                local_img = download_file(img_url)
+                local_img = yield from download_file(img_url)
                 if local_img:
-                    texts.append(process_image(local_img))
+                    yield from process_image(local_img)
             except Exception as e:
-                print(f"[ERROR] Failed to process Image: {e}")
-                continue
+                yield f"[ERROR] Failed to process Image: {e}"
 
-        texts.append(extract_faq(soup))
-
-        full_result = "\n\n".join(texts)
-        print(f"[DEBUG] Final extracted text length: {len(full_result)} characters from {url}")
-        return full_result
+        yield extract_faq(soup)
+        yield f"[DEBUG] Finished processing {url}"
 
     except Exception as e:
-        print(f"[ERROR] Failed to process {url}: {e}")
-        return ""
+        yield f"[ERROR] Failed to process {url}: {e}"
 
-
-def process_all(sources):
-    print("[INFO] Starting processing of all sources")
-    all_texts = []
+def stream_process_all(sources):
+    yield "[INFO] Starting processing of all sources"
     for item in sources:
-        print(f"[INFO] Processing source: {item}")
+        yield f"[INFO] Processing source: {item}"
         if item["type"] == "image":
-            text = process_image(item["path"])
+            yield from process_image(item["path"])
         elif item["type"] == "pdf":
-            text = process_pdf(item["path"])
+            yield from process_pdf(item["path"])
         elif item["type"] == "website":
-            text = process_website(item["path"], dynamic=item.get("dynamic", True),depth=2)
-        else:
-            text = ""
-        all_texts.append(text)
-
+            yield from process_website(item["path"], dynamic=item.get("dynamic", True), depth=2)
     shutil.rmtree("temp", ignore_errors=True)
-    print("[INFO] Completed processing of all sources")
-    return "\n\n".join(all_texts)
-
-
+    yield "[INFO] Completed processing of all sources"
 
 def get_data(sources):
-    result = process_all(sources)
-    print(f"[INFO] Data processed, length: {len(result)}")
-    return result
+    return StreamingResponse(stream_process_all(sources), media_type="text/event-stream")
+
 
 
 

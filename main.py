@@ -1,6 +1,7 @@
 import os
 from fastapi import FastAPI, UploadFile, File, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -62,7 +63,7 @@ async def process(sources: list[SourceItem]):
     global rag_chain
 
     print("[1] Processing input sources...")
-    docs = get_data([s.model_dump() for s in sources])
+    docs = "".join(get_data([s.model_dump() for s in sources]))  # Blocking version
     print(f"[DEBUG] Total text length: {len(docs)}")
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=100)
@@ -97,6 +98,15 @@ async def process(sources: list[SourceItem]):
 
     return {"message": "✅ Data processed and RAG chain initialized."}
 
+# 🔁 Streaming endpoint
+@app.post("/stream-process")
+async def stream_process(sources: list[SourceItem]):
+    def stream():
+        for log in get_data([s.model_dump() for s in sources]):
+            yield f"data: {log}\n\n"
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+# 🔎 Ask Query
 class Query(BaseModel):
     query: str
 
@@ -111,6 +121,7 @@ async def ask_question(payload: Query):
     except Exception as e:
         return {"error": str(e)}
 
+# 🧹 Reset Pinecone
 @app.post("/reset")
 async def reset_index():
     try:
@@ -123,3 +134,4 @@ async def reset_index():
             return {"message": "⚠️ No vectors found in 'default' namespace."}
     except Exception as e:
         return {"error": f"❌ Error resetting index: {str(e)}"}
+
